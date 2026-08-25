@@ -343,6 +343,23 @@ def sync_one_workout(
 
     logger.info("Syncing: %s (%s)", title, wid)
 
+    new_prs: list[dict] = []
+    if not dry_run:
+        try:
+            from hevy2garmin.prs import record_workout_prs
+
+            new_prs = record_workout_prs(merge_store, workout)
+            if new_prs:
+                logger.info(
+                    "  \U0001f3c6 %d new PR(s): %s",
+                    len(new_prs),
+                    ", ".join(f"{p['exercise_title']} {p['weight_kg']:g}kg" for p in new_prs),
+                )
+        except Exception:
+            # PR tracking must never fail a sync.
+            logger.warning("PR detection failed for %s", wid, exc_info=True)
+            new_prs = []
+
     merge_mode = cfg.get("merge_mode", True)
     merge_overlap_pct = cfg.get("merge_overlap_pct", 70) / 100.0
     merge_max_drift_min = cfg.get("merge_max_drift_min", 20)
@@ -364,6 +381,7 @@ def sync_one_workout(
             max_drift_minutes=merge_max_drift_min,
             activity_types=merge_activity_types,
             watch_strategy=merge_watch_strategy,
+            new_prs=new_prs,
         )
         if merge_result.merged:
             fit_stats = _estimate_fit_stats(workout)
@@ -444,6 +462,7 @@ def sync_one_workout(
                 max_drift_minutes=merge_max_drift_min,
                 activity_types=merge_activity_types,
                 watch_strategy="merge",
+                new_prs=new_prs,
             )
             if fallback.merged:
                 fit_stats = _estimate_fit_stats(workout)
@@ -532,7 +551,7 @@ def sync_one_workout(
             activity_id = existing_id
         else:
             sync_method = "upload_fallback" if merge_mode else "upload"
-            desc = generate_description(workout, calories=result.get("calories"), avg_hr=result.get("avg_hr")) if description_enabled else ""
+            desc = generate_description(workout, calories=result.get("calories"), avg_hr=result.get("avg_hr"), new_prs=new_prs) if description_enabled else ""
             pending_payload = {
                 "workout": workout,
                 "title": title,
@@ -596,6 +615,7 @@ def sync_one_workout(
                     workout,
                     calories=result.get("calories"),
                     avg_hr=result.get("avg_hr"),
+                    new_prs=new_prs,
                 )
                 set_description(garmin_client, activity_id, desc)
 

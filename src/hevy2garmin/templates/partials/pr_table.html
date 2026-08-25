@@ -1,0 +1,58 @@
+{% if toast %}
+<div class="toast toast-{{ toast.kind }}">{{ toast.message }}</div>
+{% endif %}
+
+{% if prs %}
+<div class="card" style="padding: 0; overflow: hidden; margin-top: 12px;">
+    <table>
+        <thead>
+            <tr>
+                <th>Exercise</th>
+                <th style="text-align: right;">PR</th>
+                <th style="text-align: right;">Reps</th>
+                <th>Date</th>
+                <th>Workout</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for pr in prs %}
+            <tr>
+                <td style="font-weight: 600;">
+                    {{ pr.title }}
+                    {% if pr.previous %}
+                    <details style="margin-top: 4px;">
+                        <summary style="cursor: pointer; font-size: 12px; font-weight: 500; color: var(--text-muted);">
+                            {{ pr.previous|length }} previous PR{{ 's' if pr.previous|length != 1 }}
+                        </summary>
+                        <div style="margin-top: 6px; font-size: 13px; font-weight: 400; color: var(--text-secondary);">
+                            {% for old in pr.previous %}
+                            <div style="padding: 2px 0;">
+                                <span style="font-variant-numeric: tabular-nums;">{{ '%g'|format(old.weight_kg) }} kg</span>
+                                <span style="color: var(--text-muted);">· {{ old.achieved_at[:10] if old.achieved_at else '—' }}{% if old.workout_title %} · {{ old.workout_title }}{% endif %}</span>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </details>
+                    {% endif %}
+                </td>
+                <td style="text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; color: var(--accent);">{{ '%g'|format(pr.current.weight_kg) }} kg</td>
+                <td style="text-align: right; font-variant-numeric: tabular-nums; color: var(--text-secondary);">{{ pr.current.reps or '—' }}</td>
+                <td style="color: var(--text-muted); font-size: 13px; font-variant-numeric: tabular-nums;">{{ pr.current.achieved_at[:10] if pr.current.achieved_at else '—' }}</td>
+                <td style="color: var(--text-secondary); font-size: 13px;">{{ pr.current.workout_title or '—' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+<p style="color: var(--text-muted); font-size: 13px; margin-top: 12px;">
+    {{ pr_count }} exercise{{ 's' if pr_count != 1 }} · {{ pr_event_count }} PR event{{ 's' if pr_event_count != 1 }}
+</p>
+{% else %}
+<div class="card" style="text-align: center; padding: 40px 20px; margin-top: 12px;">
+    <p style="color: var(--text-secondary);">No personal records yet.</p>
+    <p style="color: var(--text-muted); font-size: 13px; margin-top: 6px;">
+        Click <b>Sync PRs</b> to build your PR history from your Hevy workouts.
+        New PRs are also detected automatically whenever a workout is synced.
+    </p>
+</div>
+{% endif %}

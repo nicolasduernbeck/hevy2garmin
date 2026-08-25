@@ -228,3 +228,26 @@ class Database(ABC):
     @abstractmethod
     def get_recent_synced_routines(self, limit: int = 5) -> list[dict]:
         """Return recently synced routines, newest first."""
+
+    # ── Personal record (PR) tracking ────────────────────────────────────────
+    @abstractmethod
+    def get_pr_maxima(self) -> dict[str, dict]:
+        """Return the current max PR weight per exercise.
+
+        Maps ``exercise_key`` to ``{"weight_kg": float, "hevy_workout_id": str}``
+        so PR detection can compare new weights and recognize re-syncs of the
+        workout that set the record.
+        """
+
+    @abstractmethod
+    def upsert_pr_event(self, event: dict) -> None:
+        """Insert or update a PR event keyed by (exercise_key, hevy_workout_id)."""
+
+    @abstractmethod
+    def replace_pr_events(self, events: list[dict]) -> int:
+        """Atomically replace all PR events (full-history rebuild). Returns new count."""
+
+    @abstractmethod
+    def get_pr_history(self) -> list[dict]:
+        """Return every PR event, ordered by exercise then weight descending."""
+

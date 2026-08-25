@@ -108,6 +108,31 @@ class TestDescriptionGeneration:
         assert "kcal" not in desc
         assert "bpm" not in desc
 
+    def test_new_pr_section(self, sample_workout: dict) -> None:
+        new_prs = [
+            {"exercise_title": "Bench Press (Barbell)", "weight_kg": 100.0},
+            {"exercise_title": "Shoulder Press (Dumbbell)", "weight_kg": 34.0},
+        ]
+        desc = generate_description(sample_workout, calories=350, new_prs=new_prs)
+        assert "🏆 NEW PRs" in desc
+        assert "• Bench Press (Barbell): 100 kg" in desc
+        assert "• Shoulder Press (Dumbbell): 34 kg" in desc
+        # PR section comes after the stats, before the exercise list.
+        assert desc.index("350 kcal") < desc.index("🏆 NEW PRs") < desc.index("Bench Press (Barbell):")
+
+    def test_pr_weights_keep_decimals(self, sample_workout: dict) -> None:
+        desc = generate_description(
+            sample_workout, new_prs=[{"exercise_title": "Bench Press (Barbell)", "weight_kg": 102.5}]
+        )
+        assert "• Bench Press (Barbell): 102.5 kg" in desc
+
+    def test_no_prs_keeps_existing_description_unchanged(self, sample_workout: dict) -> None:
+        baseline = generate_description(sample_workout, calories=350, avg_hr=120)
+        assert generate_description(sample_workout, calories=350, avg_hr=120, new_prs=[]) == baseline
+        assert generate_description(sample_workout, calories=350, avg_hr=120, new_prs=None) == baseline
+        assert "🏆" not in baseline
+
+
     def test_mixed_cardio_and_strength(self) -> None:
         workout = {
             "title": "Mixed",

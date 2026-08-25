@@ -516,7 +516,12 @@ def unschedule_workout(client: Garmin, scheduled_id: int | str) -> None:
     logger.info("  Unscheduled Garmin calendar entry %s", scheduled_id)
 
 
-def generate_description(workout: dict, calories: int | None = None, avg_hr: int | None = None) -> str:
+def generate_description(
+    workout: dict,
+    calories: int | None = None,
+    avg_hr: int | None = None,
+    new_prs: list[dict] | None = None,
+) -> str:
     """Generate a text description for a gym workout."""
     lines: list[str] = []
     title = workout.get("title", "Workout")
@@ -542,6 +547,14 @@ def generate_description(workout: dict, calories: int | None = None, avg_hr: int
         lines.append(f"🔥 {calories} kcal")
     if avg_hr:
         lines.append(f"❤️ avg {avg_hr} bpm")
+
+    if new_prs:
+        lines.append("")
+        lines.append("🏆 NEW PRs")
+        for pr in new_prs:
+            weight = pr.get("weight_kg")
+            weight_str = f"{weight:g}" if isinstance(weight, (int, float)) else str(weight)
+            lines.append(f"• {pr.get('exercise_title', 'Unknown')}: {weight_str} kg")
 
     exercises = workout.get("exercises", [])
     if exercises:

@@ -355,11 +355,11 @@ def build_exercise_sets_payload(
     return {"activityId": activity_id, "exerciseSets": exercise_sets}
 
 
-def _apply_name_and_description(client, activity_id, hevy_workout) -> None:
+def _apply_name_and_description(client, activity_id, hevy_workout, new_prs=None) -> None:
     """Rename a Garmin activity to the Hevy title and set its exercise description."""
     title = hevy_workout.get("title", "Workout")
     rename_activity(client, activity_id, title)
-    desc = generate_description(hevy_workout)
+    desc = generate_description(hevy_workout, new_prs=new_prs)
     note = "synced by hevy2garmin"
     if not desc.rstrip().endswith(note):
         desc = f"{desc}\n{note}"
@@ -378,6 +378,7 @@ def attempt_merge(
     max_drift_minutes: int = 20,
     activity_types: set[str] | None = None,
     watch_strategy: str = "replace",
+    new_prs: list[dict] | None = None,
 ) -> MergeResult:
     """Try to merge Hevy exercise data into a matching Garmin activity.
 
@@ -420,7 +421,7 @@ def attempt_merge(
             activity_id, manufacturer,
         )
         try:
-            _apply_name_and_description(client, activity_id, hevy_workout)
+            _apply_name_and_description(client, activity_id, hevy_workout, new_prs=new_prs)
         except Exception as e:
             logger.warning("Rename/description failed for %s: %s", activity_id, e)
         return MergeResult(merged=True, activity_id=activity_id)
@@ -511,7 +512,7 @@ def attempt_merge(
 
     # Rename + set description
     try:
-        _apply_name_and_description(client, activity_id, hevy_workout)
+        _apply_name_and_description(client, activity_id, hevy_workout, new_prs=new_prs)
     except Exception as e:
         logger.warning("Rename/description failed after merge for %s: %s", activity_id, e)
         # Non-fatal, sets were already pushed

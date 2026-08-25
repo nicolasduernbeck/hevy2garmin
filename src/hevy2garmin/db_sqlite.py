@@ -147,6 +147,20 @@ class SQLiteDatabase(Database):
             conn.execute("ALTER TABLE synced_routines ADD COLUMN content_hash TEXT")
         except Exception:
             pass  # Column already exists
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS pr_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                exercise_key TEXT NOT NULL,
+                exercise_title TEXT,
+                weight_kg REAL NOT NULL,
+                reps INTEGER,
+                achieved_at TEXT,
+                hevy_workout_id TEXT,
+                workout_title TEXT,
+                created_at TEXT DEFAULT (datetime('now')),
+                UNIQUE (exercise_key, hevy_workout_id)
+            )
+        """)
         conn.commit()
         return conn
 
@@ -361,6 +375,65 @@ class SQLiteDatabase(Database):
         ).fetchall()
         conn.close()
         keys = ("hevy_routine_id", "title", "scheduled_date", "garmin_workout_id", "synced_at")
+        return [dict(zip(keys, r)) for r in rows]
+
+    # ── Personal record (PR) tracking ────────────────────────────────────────
+    _PR_COLUMNS = ("exercise_key", "exercise_title", "weight_kg", "reps",
+                   "achieved_at", "hevy_workout_id", "workout_title")
+
+    def get_pr_maxima(self) -> dict[str, dict]:
+        conn = self._get_conn()
+        # Only improvements are stored, so the max weight per key is unique.
+        rows = conn.execute(
+            "SELECT exercise_key, MAX(weight_kg), hevy_workout_id "
+            "FROM pr_events GROUP BY exercise_key"
+        ).fetchall()
+        conn.close()
+        return {r[0]: {"weight_kg": r[1], "hevy_workout_id": r[2]} for r in rows}
+
+    def upsert_pr_event(self, event: dict) -> None:
+        conn = self._get_conn()
+        conn.execute(
+            """
+            INSERT INTO pr_events
+                (exercise_key, exercise_title, weight_kg, reps, achieved_at, hevy_workout_id, workout_title)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(exercise_key, hevy_workout_id) DO UPDATE SET
+                exercise_title = excluded.exercise_title,
+                weight_kg = excluded.weight_kg,
+                reps = excluded.reps,
+                achieved_at = excluded.achieved_at,
+                workout_title = excluded.workout_title
+            """,
+            tuple(event.get(c) for c in self._PR_COLUMNS),
+        )
+        conn.commit()
+        conn.close()
+
+    def replace_pr_events(self, events: list[dict]) -> int:
+        conn = self._get_conn()
+        try:
+            conn.execute("DELETE FROM pr_events")
+            conn.executemany(
+                "INSERT INTO pr_events "
+                "(exercise_key, exercise_title, weight_kg, reps, achieved_at, hevy_workout_id, workout_title) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                [tuple(e.get(c) for c in self._PR_COLUMNS) for e in events],
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        return len(events)
+
+    def get_pr_history(self) -> list[dict]:
+        conn = self._get_conn()
+        rows = conn.execute(
+            "SELECT exercise_key, exercise_title, weight_kg, reps, achieved_at, "
+            "hevy_workout_id, workout_title, created_at FROM pr_events "
+            "ORDER BY exercise_title ASC, weight_kg DESC"
+        ).fetchall()
+        conn.close()
+        keys = self._PR_COLUMNS + ("created_at",)
         return [dict(zip(keys, r)) for r in rows]
 
     def mark_synced(

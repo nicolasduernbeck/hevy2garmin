@@ -118,6 +118,26 @@ def get_recent_synced_routines(limit: int = 5, **kw) -> list[dict]:
     return get_db().get_recent_synced_routines(limit)
 
 
+def get_pr_maxima(**kw) -> dict[str, dict]:
+    """Current max PR weight per exercise key."""
+    return get_db().get_pr_maxima()
+
+
+def upsert_pr_event(event: dict, **kw) -> None:
+    """Insert or update a PR event."""
+    return get_db().upsert_pr_event(event)
+
+
+def replace_pr_events(events: list[dict], **kw) -> int:
+    """Atomically replace all PR events. Returns new count."""
+    return get_db().replace_pr_events(events)
+
+
+def get_pr_history(**kw) -> list[dict]:
+    """Return every PR event, ordered by exercise then weight descending."""
+    return get_db().get_pr_history()
+
+
 def get_synced_routine(hevy_routine_id: str, **kw) -> dict | None:
     """Get a single synced-routine record (used by `sync-routines --list`)."""
     return get_db().get_synced_routine(hevy_routine_id)

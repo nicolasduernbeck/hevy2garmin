@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}PRs · hevy2garmin{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Personal Records</h1>
+    <p>Highest actual weight per exercise — warm-up sets excluded, no estimated 1RM.</p>
+</div>
+
+<div class="card" style="margin-bottom: 24px;">
+    <div class="card-header" style="margin-bottom: 0;">
+        <div>
+            <span class="card-title">Sync PRs</span>
+            <p style="color: var(--text-secondary); font-size: 13px; margin-top: 4px;">
+                Rebuilds the full PR history from all your Hevy workouts. Safe to run repeatedly.
+            </p>
+        </div>
+        <button class="btn btn-primary"
+                hx-post="/api/prs/sync"
+                hx-target="#pr-content"
+                hx-swap="innerHTML"
+                hx-disabled-elt="this">
+            <span class="spinner htmx-indicator"></span>
+            <span class="htmx-hide">🏆</span>
+            Sync PRs
+        </button>
+    </div>
+</div>
+
+<div id="pr-content">
+    {% include "partials/pr_table.html" %}
+</div>
+{% endblock %}

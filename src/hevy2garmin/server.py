@@ -1357,6 +1357,50 @@ async def history_page(request: Request):
     return _render("history.html", total=db.get_synced_count(), history=db.get_recent_synced(50))
 
 
+def _pr_context() -> dict:
+    from hevy2garmin.prs import group_pr_history
+
+    events = db.get_pr_history()
+    prs = group_pr_history(events)
+    return {"prs": prs, "pr_count": len(prs), "pr_event_count": len(events)}
+
+
+@app.get("/prs", response_class=HTMLResponse)
+async def prs_page(request: Request):
+    return _render("prs.html", **_pr_context())
+
+
+@app.post("/api/prs/sync", response_class=HTMLResponse)
+async def api_prs_sync(request: Request):
+    """Rebuild the PR history from the full Hevy workout history. Idempotent."""
+    if is_demo_mode():
+        return HTMLResponse('<div class="toast toast-error">Sync PRs is disabled in demo mode.</div>')
+    if not _acquire_sync_lock():
+        return HTMLResponse('<div class="toast toast-error">Another sync is already running. Please wait.</div>')
+    try:
+        from hevy2garmin.hevy import HevyClient
+        from hevy2garmin.prs import rebuild_pr_history
+
+        config = load_config()
+        hevy = HevyClient(api_key=config.get("hevy_api_key"))
+        workouts = await run_in_threadpool(hevy.get_all_workouts)
+        result = await run_in_threadpool(rebuild_pr_history, db.get_db(), workouts)
+    except Exception as e:
+        logger.error("Sync PRs failed: %s", e)
+        toast = {"kind": "error", "message": f"Sync PRs failed: {e}"}
+        return _render("partials/pr_table.html", toast=toast, **_pr_context())
+    finally:
+        _sync_executing.release()
+    toast = {
+        "kind": "success",
+        "message": (
+            f"PR history rebuilt: {result['events']} PRs across "
+            f"{result['exercises']} exercises from {result['workouts']} workouts."
+        ),
+    }
+    return _render("partials/pr_table.html", toast=toast, **_pr_context())
+
+
 @app.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request):
     config = load_config()

@@ -147,6 +147,20 @@ class PostgresDatabase(Database):
                         PRIMARY KEY (hevy_routine_id, schedule_id)
                     )
                 """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS pr_events (
+                        id BIGSERIAL PRIMARY KEY,
+                        exercise_key TEXT NOT NULL,
+                        exercise_title TEXT,
+                        weight_kg DOUBLE PRECISION NOT NULL,
+                        reps INTEGER,
+                        achieved_at TEXT,
+                        hevy_workout_id TEXT,
+                        workout_title TEXT,
+                        created_at TIMESTAMPTZ DEFAULT NOW(),
+                        UNIQUE (exercise_key, hevy_workout_id)
+                    )
+                """)
             conn.commit()
 
     def is_synced(self, hevy_id: str) -> bool:
@@ -364,6 +378,69 @@ class PostgresDatabase(Database):
                     "SELECT hevy_routine_id, title, scheduled_date, garmin_workout_id, synced_at "
                     "FROM synced_routines ORDER BY synced_at DESC LIMIT %s",
                     (limit,),
+                )
+                return [dict(r) for r in cur.fetchall()]
+
+    # ── Personal record (PR) tracking ────────────────────────────────────────
+    _PR_COLUMNS = ("exercise_key", "exercise_title", "weight_kg", "reps",
+                   "achieved_at", "hevy_workout_id", "workout_title")
+
+    def get_pr_maxima(self) -> dict[str, dict]:
+        with self._get_conn() as conn:
+            with conn.cursor() as cur:
+                # Only improvements are stored, so the max weight per key is unique.
+                cur.execute(
+                    "SELECT DISTINCT ON (exercise_key) exercise_key, weight_kg, hevy_workout_id "
+                    "FROM pr_events ORDER BY exercise_key, weight_kg DESC"
+                )
+                return {
+                    r["exercise_key"]: {
+                        "weight_kg": r["weight_kg"],
+                        "hevy_workout_id": r["hevy_workout_id"],
+                    }
+                    for r in cur.fetchall()
+                }
+
+    def upsert_pr_event(self, event: dict) -> None:
+        with self._get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO pr_events
+                        (exercise_key, exercise_title, weight_kg, reps, achieved_at, hevy_workout_id, workout_title)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (exercise_key, hevy_workout_id) DO UPDATE SET
+                        exercise_title = EXCLUDED.exercise_title,
+                        weight_kg = EXCLUDED.weight_kg,
+                        reps = EXCLUDED.reps,
+                        achieved_at = EXCLUDED.achieved_at,
+                        workout_title = EXCLUDED.workout_title
+                    """,
+                    tuple(event.get(c) for c in self._PR_COLUMNS),
+                )
+            conn.commit()
+
+    def replace_pr_events(self, events: list[dict]) -> int:
+        with self._get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM pr_events")
+                for event in events:
+                    cur.execute(
+                        "INSERT INTO pr_events "
+                        "(exercise_key, exercise_title, weight_kg, reps, achieved_at, hevy_workout_id, workout_title) "
+                        "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                        tuple(event.get(c) for c in self._PR_COLUMNS),
+                    )
+            conn.commit()
+        return len(events)
+
+    def get_pr_history(self) -> list[dict]:
+        with self._get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT exercise_key, exercise_title, weight_kg, reps, achieved_at, "
+                    "hevy_workout_id, workout_title, created_at FROM pr_events "
+                    "ORDER BY exercise_title ASC, weight_kg DESC"
                 )
                 return [dict(r) for r in cur.fetchall()]
 

@@ -14,6 +14,8 @@
   Sync your <a href="https://hevyapp.com">Hevy</a> gym workouts to <a href="https://connect.garmin.com">Garmin Connect</a> with correct exercise names, sets, reps, weights, calorie estimation, and optional heart rate overlay from your Garmin watch.
 </p>
 
+> **Fork notice:** This repository is a fork of [drkostas/hevy2garmin](https://github.com/drkostas/hevy2garmin) extended with Personal Record tracking. All core functionality and credit belong to the original project — see [This Fork](#this-fork).
+
 <p align="center">
   <a href="https://hevy2garmin-demo.gkos.dev"><strong>Try the live demo</strong></a>
   &nbsp;·&nbsp;
@@ -26,6 +28,18 @@
 
 > **Hevy Pro required.** The Hevy API is only available with a [Hevy Pro](https://hevyapp.com) subscription. Without it, hevy2garmin cannot access your workouts.
 
+## This Fork
+
+This repository is a customized version of the original [hevy2garmin](https://github.com/drkostas/hevy2garmin) project by [@drkostas](https://github.com/drkostas). The original Hevy → Garmin synchronization and self-hosting architecture remain the foundation of this project and are unchanged. This fork adds:
+
+- **[Personal Record tracking](#personal-records)** — PRs are the highest actual weight recorded for an exercise; no estimated 1RM or any mathematical formula is used
+- **PR history**, stored locally in the existing database (SQLite/Postgres)
+- **A dedicated PRs dashboard page** showing current records and their history
+- **Historical PR synchronization** — the "Sync PRs" button rebuilds the full PR history from your Hevy workouts
+- **PR information in Garmin activity descriptions** — new PRs appear as a `🏆 NEW PRs` block in the synced activity's description
+
+This fork does **not** create native Garmin Connect Personal Records. These PR features are additions of this fork and are not part of the original project. Everything else documented below comes from the original project.
+
 ## Why?
 
 Hevy is great for tracking gym workouts but doesn't sync to Garmin. This tool bridges the gap:
@@ -35,14 +49,15 @@ Hevy is great for tracking gym workouts but doesn't sync to Garmin. This tool br
 - **Uploads to Garmin Connect** with the correct activity name and a detailed description
 - **Estimates calories** using the Keytel formula (weight, age, VO2max, heart rate)
 - **Overlays heart rate data** from your Garmin watch onto workout charts with per-exercise segments
+- **Tracks personal records** — the highest actual weight you've lifted per exercise, shown on a dashboard page and called out in the Garmin activity description
 - **Tracks synced workouts** so nothing gets duplicated
 
 ## Screenshots
 
-| Workouts | Mappings |
-|----------|----------|
+| Workouts                                   | Mappings                                   |
+| ------------------------------------------ | ------------------------------------------ |
 | ![Workouts](docs/screenshots/workouts.png) | ![Mappings](docs/screenshots/mappings.png) |
-| **HR Timeline** | **Calorie Breakdown** |
+| **HR Timeline**                            | **Calorie Breakdown**                      |
 | ![HR Chart](docs/screenshots/hr-chart.png) | ![Calories](docs/screenshots/calories.png) |
 
 ## Requirements
@@ -88,12 +103,12 @@ This token lets hevy2garmin set up automatic syncing on your behalf. Open [this 
 3. **Add a database (required).** If you see an **Integrations** or **Storage** section during import, add **Neon Postgres** (it's free). This is where your sync history lives. If you don't see it during import, that's fine: deploy first, then open your project's **Storage** tab, add **Neon Postgres**, and redeploy. A serverless host has a read-only filesystem, so with no database the app can't save anything and shows an "internal server error".
 4. **Environment Variables.** Vercel does not pre-fill these. The form shows an empty field with a placeholder like `EXAMPLE_NAME`. Add each of the four below as its own variable: type the name in **Key**, the value in **Value**, then click **Add More** for the next one.
 
-| Key | What to paste |
-|-------|--------------|
-| `HEVY_API_KEY` | The API key from step 1 |
-| `GARMIN_EMAIL` | Your Garmin Connect email |
+| Key               | What to paste                |
+| ----------------- | ---------------------------- |
+| `HEVY_API_KEY`    | The API key from step 1      |
+| `GARMIN_EMAIL`    | Your Garmin Connect email    |
 | `GARMIN_PASSWORD` | Your Garmin Connect password |
-| `GITHUB_PAT` | The token from step 3 |
+| `GITHUB_PAT`      | The token from step 3        |
 
 5. Click **Deploy** and wait about a minute for it to build. If the deployed page shows an "internal server error", it almost always means the database step was skipped: add **Neon Postgres** from the **Storage** tab, then redeploy.
 
@@ -215,6 +230,7 @@ docker build -t hevy2garmin .
 ```
 
 Before running in Docker, you need Garmin auth tokens. Either:
+
 - Run `pip install hevy2garmin && hevy2garmin init` locally (if you have Python), or
 - Run `docker run -it -v ~/.garminconnect:/root/.garminconnect hevy2garmin init` to set up inside Docker interactively
 
@@ -292,7 +308,7 @@ npm install hevy2garmin
 ```
 
 ```ts
-import { generateFit, HevyClient } from "hevy2garmin";
+import { generateFit, HevyClient } from 'hevy2garmin';
 ```
 
 It lives alongside the Python package in the [`typescript/`](typescript) folder of this repo and is published to npm under the same name. Setup, the full API, and examples are in the [TypeScript README](typescript/README.md). The Python package on PyPI stays fully supported.
@@ -310,6 +326,7 @@ If you don't see the Developer section, you need to upgrade to [Hevy Pro](https:
 ## Credentials
 
 **Three ways to provide credentials** (in order of precedence):
+
 1. CLI flags: `--hevy-api-key`, `--garmin-email`, `--garmin-password`
 2. Environment variables: `HEVY_API_KEY`, `GARMIN_EMAIL`, `GARMIN_PASSWORD`
 3. Config file: `~/.hevy2garmin/config.json` (created by `hevy2garmin init` or the web dashboard)
@@ -355,7 +372,7 @@ It also binds the port to `127.0.0.1` rather than all interfaces, drops all capa
 Two settings matter if the point of self-hosting is that nothing leaves your network:
 
 - **`H2G_DIRECT_GARMIN_LOGIN=true`** — collect your Garmin password and MFA code on your own instance and run the login there, instead of posting them to the hosted exchange worker the Vercel deploy uses. Off by default; the worker path is unchanged unless you set this. Requires a writable home directory, so it is for self-hosted installs only, not serverless.
-The resulting token store lives in `~/.garminconnect` by default (`garmin_token_dir` in `~/.hevy2garmin/config.json`). Back that directory up and you will not have to log in again after a rebuild — which is what the `garmin_auth` volume in the compose file is for.
+  The resulting token store lives in `~/.garminconnect` by default (`garmin_token_dir` in `~/.hevy2garmin/config.json`). Back that directory up and you will not have to log in again after a rebuild — which is what the `garmin_auth` volume in the compose file is for.
 
 Your Hevy API key stays local either way.
 
@@ -376,7 +393,7 @@ location /hevy2garmin/ {
 }
 ```
 
-**The opt-in is not busywork.** Any client can send `X-Forwarded-Prefix`, and every URL on the page is built from it — the login form's `action`, the Garmin token POST, redirect targets. On an instance that is *not* behind a prefix-setting proxy, believing the header would let a caller re-point those at their own host. So the header is ignored unless you turn this on, and even then only a plain absolute path is accepted (no `//host`, no scheme, no quotes or angle brackets); anything else is treated as no prefix and the app serves from the root. **Your proxy must set the header itself rather than passing a client-supplied one through.**
+**The opt-in is not busywork.** Any client can send `X-Forwarded-Prefix`, and every URL on the page is built from it — the login form's `action`, the Garmin token POST, redirect targets. On an instance that is _not_ behind a prefix-setting proxy, believing the header would let a caller re-point those at their own host. So the header is ignored unless you turn this on, and even then only a plain absolute path is accepted (no `//host`, no scheme, no quotes or angle brackets); anything else is treated as no prefix and the app serves from the root. **Your proxy must set the header itself rather than passing a client-supplied one through.**
 
 Caddy equivalent (`header_up` replaces any incoming value, which is what you want):
 
@@ -398,13 +415,13 @@ Auto-sync runs on a timer inside the process, so a self-hosted instance can poll
 
 Polling means a finished workout waits up to a full interval. Hevy can push instead: point a Hevy webhook subscription at `POST /api/cron/webhook`, authenticated with the same `CRON_SECRET` bearer token as the cron endpoint.
 
-A webhook that synced immediately would be *worse* than polling for watch users, though: the paired Garmin activity has not arrived yet, the merge finds nothing, and the workout uploads as a plain FIT — leaving exactly the duplicate the merge exists to avoid. So the endpoint answers 200 straight away (Hevy times out in seconds) and stages the sync:
+A webhook that synced immediately would be _worse_ than polling for watch users, though: the paired Garmin activity has not arrived yet, the merge finds nothing, and the workout uploads as a plain FIT — leaving exactly the duplicate the merge exists to avoid. So the endpoint answers 200 straight away (Hevy times out in seconds) and stages the sync:
 
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `WEBHOOK_DELAY_SECONDS` | `300` | Wait this long before the first attempt |
-| `WEBHOOK_RETRY_INTERVAL_SECONDS` | `600` | Gap between attempts |
-| `WEBHOOK_MAX_ATTEMPTS` | `3` | Attempts before giving up |
+| Variable                         | Default | Meaning                                 |
+| -------------------------------- | ------- | --------------------------------------- |
+| `WEBHOOK_DELAY_SECONDS`          | `300`   | Wait this long before the first attempt |
+| `WEBHOOK_RETRY_INTERVAL_SECONDS` | `600`   | Gap between attempts                    |
+| `WEBHOOK_MAX_ATTEMPTS`           | `3`     | Attempts before giving up               |
 
 Every attempt but the last is merge-only; only the final one falls back to a plain upload, so nothing is left unsynced. Retry state is in memory, so a restart drops it — auto-sync stays the safety net, and is worth leaving enabled at a long interval.
 
@@ -412,7 +429,7 @@ Every attempt but the last is merge-only; only the final one falls back to a pla
 
 **On serverless this staging cannot run**, because the function is frozen as soon as it responds and Python on Vercel has no `waitUntil`. The endpoint detects that and does the only safe thing instead: with the watch merge on it defers to the scheduled cron (and logs that it did); with the watch merge off there is nothing to wait for, so it syncs inline — which on Vercel's Hobby plan replaces a once-a-day cron with a sync per workout.
 
-> One caveat for that last case: an inline sync can take longer than Hevy's few-second timeout, and Hevy then retries. On serverless the retry is a *separate process*, so the in-process sync lock cannot serialize the two, and the same workout could upload twice. It only applies with the watch merge off (not the default) on a serverless host; if that is your setup, prefer leaving the webhook unconfigured and relying on cron.
+> One caveat for that last case: an inline sync can take longer than Hevy's few-second timeout, and Hevy then retries. On serverless the retry is a _separate process_, so the in-process sync lock cannot serialize the two, and the same workout could upload twice. It only applies with the watch merge off (not the default) on a serverless host; if that is your setup, prefer leaving the webhook unconfigured and relying on cron.
 
 ### Removing duplicates from intervals.icu
 
@@ -497,6 +514,66 @@ When hevy2garmin syncs a workout, it adds a text description to the Garmin activ
 
 This is visible in the activity details on Garmin Connect and any connected apps (Strava, etc.). Cardio exercises show distance and duration instead of weight and reps.
 
+When a workout sets one or more [personal records](#personal-records), a PR block is added between the stats and the exercise list:
+
+```
+🏆 NEW PRs
+• Bench Press (Barbell): 100 kg
+• Incline Dumbbell Press: 34 kg
+```
+
+Workouts without a new PR keep exactly the description shown above.
+
+## Personal Records
+
+hevy2garmin tracks a personal record (PR) per exercise: **the highest actual weight you have successfully recorded in Hevy**, using the `weight_kg` value from your sets.
+
+The definition is deliberately simple:
+
+- There is **no estimated 1RM** and no Epley (or any other) formula.
+- Reps play no role in the comparison — 100 kg × 1 beats 95 kg × 10.
+- There are no volume or rep-based PRs.
+- **Warm-up sets never count.** Every other set type (normal, failure, drop set) does.
+- Sets without a positive weight — bodyweight exercises, cardio — never create a weight PR. No artificial weights are invented.
+- Exercises are identified by Hevy's exercise template id (falling back to the exercise name for custom exercises without one), so "Bench Press (Barbell)" is the same PR chain in every workout.
+
+### During normal sync
+
+PR detection runs automatically as part of the existing Hevy → Garmin sync — it doesn't replace or change how workouts are uploaded or merged. For each synced workout, the highest non-warm-up weight per exercise is compared against your stored PR:
+
+- **Strictly higher** → a new PR is recorded and listed in the Garmin activity description (see [Activity Description](#activity-description)).
+- **Equal or lower** → nothing changes.
+
+Re-syncing the same workout never creates duplicate PR entries.
+
+### Garmin Connect and native PRs
+
+The PR feature does **not** create or update Garmin Connect's own Personal Records. Garmin exposes no API for writing them. What you get on the Garmin side is the `🏆 NEW PRs` block in the activity description — the authoritative PR list lives in hevy2garmin, on the dashboard's **PRs** page.
+
+### The PRs page
+
+The dashboard's **PRs** tab lists your current record for every exercise — weight, reps on that set, the date, and the workout it came from. Exercises with more than one recorded PR show an expandable history of previous records:
+
+```
+Bench Press (Barbell)    100 kg    2026-08-22    Push Day
+  2 previous PRs
+    90 kg · 2026-08-08 · Push Day
+    80 kg · 2026-08-01 · Push Day
+```
+
+### Sync PRs (backfill)
+
+The **Sync PRs** button on the PRs page builds (or rebuilds) your PR history from your full Hevy workout history:
+
+1. Fetches all workouts from the Hevy API (same integration and rate limits as a full workout sync — expect roughly a minute per few hundred workouts).
+2. Replays them in chronological order, finding the highest non-warm-up weight per exercise.
+3. Records every point where a new highest weight was achieved.
+4. Replaces the stored PR history with the result and refreshes the list, with a success or error message.
+
+The rebuild is idempotent — running it twice produces the same records — so it's safe to re-run anytime, e.g. after editing old workouts in Hevy.
+
+PR data is stored in the same database as everything else (SQLite locally, Postgres on cloud deploys). **No extra setup, environment variables, or services are required.**
+
 ## Enhance Watch Activities (opt-in)
 
 By default, hevy2garmin creates a new Garmin activity from your Hevy workout using your watch's daily HR monitoring (~2 min sampling). This works without any behavior change. When a matching watch-recorded workout is found and the **Replace** strategy is selected, hevy2garmin instead downloads that activity's high-resolution HR, saves a durable backup, embeds it in the named Hevy FIT, uploads the replacement, and only then deletes the watch copy. If neither the original FIT nor an existing backup is available, replacement stops and preserves the watch activity.
@@ -532,9 +609,10 @@ or set `merge_activity_types` directly in `config.json`:
 2. Maps each exercise to a Garmin FIT SDK category and subcategory (433+ built-in mappings, plus any custom ones you add)
 3. Generates a structured FIT file with timing, sets, reps, weights, and calories
 4. Optionally fetches HR data from Garmin daily monitoring and overlays it on the workout
-5. Authenticates with Garmin via [garmin-auth](https://pypi.org/project/garmin-auth/) (self-healing OAuth)
-6. Uploads the FIT file, renames the activity, and sets the description
-7. Tracks synced workouts in SQLite (local) or Postgres (cloud) to avoid duplicates
+5. Detects new [personal records](#personal-records) (highest actual weight per exercise, warm-ups excluded) and includes them in the activity description
+6. Authenticates with Garmin via [garmin-auth](https://pypi.org/project/garmin-auth/) (self-healing OAuth)
+7. Uploads the FIT file, renames the activity, and sets the description
+8. Tracks synced workouts in SQLite (local) or Postgres (cloud) to avoid duplicates
 
 ## Exercise Mapping
 
@@ -600,4 +678,4 @@ DATABASE_URL=postgresql://user:pass@localhost:5432/hevy2garmin pytest tests/ -v
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE). The original hevy2garmin is © [Konstantinos Georgiou (@drkostas)](https://github.com/drkostas) and its copyright and license notice are retained in this fork, as the MIT license requires. Modifications in this fork (Personal Record tracking) are provided under the same license.
