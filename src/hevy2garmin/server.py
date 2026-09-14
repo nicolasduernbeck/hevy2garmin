@@ -2885,11 +2885,23 @@ async def cron_sync(request: Request, merge_only: bool = Query(False)):
     """Vercel cron endpoint. Syncs 1 workout per invocation."""
     from fastapi.responses import JSONResponse
 
-    # Vercel sets CRON_SECRET to verify cron requests
+    # Fail CLOSED, same as the webhook endpoint below. This route is exempt
+    # from the dashboard cookie/CSRF middleware (see check_setup's path
+    # allowlist), so treating "no secret set" as "no auth needed" leaves an
+    # anonymous sync trigger exposed on any instance whose owner set a
+    # dashboard password but never set CRON_SECRET. Unconfigured means
+    # unavailable, not open.
     cron_secret = os.environ.get("CRON_SECRET")
-    if cron_secret:
-        if not _bearer_ok(request, cron_secret):
-            return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    if not cron_secret:
+        logger.warning(
+            "Cron sync refused: CRON_SECRET is not set, so there is no way to authenticate "
+            "the caller. Set CRON_SECRET to enable this endpoint."
+        )
+        return JSONResponse(
+            {"error": "Cron endpoint not configured: CRON_SECRET is unset"}, status_code=503
+        )
+    if not _bearer_ok(request, cron_secret):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
 
     # Cron/autosync — respect grace so watch activities can land first.
     return await _sync_one_recorded(respect_grace=True, merge_only=merge_only, trigger="cron")
