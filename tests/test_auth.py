@@ -255,7 +255,7 @@ class TestHardenedHelpers:
     def test_session_ttl_default(self) -> None:
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("H2G_SESSION_TTL_DAYS", None)
-            assert session_ttl() == 30 * 24 * 3600
+            assert session_ttl() == 7 * 24 * 3600
 
     def test_session_ttl_from_env(self) -> None:
         with patch.dict(os.environ, {"H2G_SESSION_TTL_DAYS": "3"}):
@@ -263,7 +263,7 @@ class TestHardenedHelpers:
 
     def test_session_ttl_invalid_falls_back(self) -> None:
         with patch.dict(os.environ, {"H2G_SESSION_TTL_DAYS": "abc"}):
-            assert session_ttl() == 30 * 24 * 3600
+            assert session_ttl() == 7 * 24 * 3600
 
     def test_verify_respects_configured_ttl(self) -> None:
         import hashlib

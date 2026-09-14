@@ -19,14 +19,16 @@ import os
 import time
 
 SESSION_COOKIE = "h2g_session"
-DEFAULT_SESSION_TTL_DAYS = 30
+DEFAULT_SESSION_TTL_DAYS = 7
 
 
 def session_ttl() -> int:
     """Session lifetime in seconds (absolute, measured from login).
 
-    Configurable via ``H2G_SESSION_TTL_DAYS`` (integer days; default 30). An
-    invalid or non-positive value falls back to the default.
+    Configurable via ``H2G_SESSION_TTL_DAYS`` (integer days; default 7 — this
+    dashboard is commonly exposed to the internet, so sessions shouldn't
+    outlive a browser's cookie jar indefinitely). An invalid or non-positive
+    value falls back to the default.
     """
     raw = os.environ.get("H2G_SESSION_TTL_DAYS")
     if raw:
