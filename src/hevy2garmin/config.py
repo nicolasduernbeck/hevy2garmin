@@ -28,8 +28,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
         # Wait this many minutes after a workout ends before syncing it, so the
         # Garmin watch activity has time to appear and we can merge instead of
         # uploading a duplicate. 0 = sync immediately (old behavior). Applies to
-        # automatic runs only; manual "sync now" bypasses it.
-        "grace_period_minutes": 120,
+        # automatic runs only; manual "sync now" bypasses it. Default assumes a
+        # watch that uploads within ~15 min (typical Bluetooth sync); raise it
+        # if your watch takes longer to reach Garmin Connect.
+        "grace_period_minutes": 15,
     },
     "auto_sync": {
         "enabled": False,

@@ -160,4 +160,4 @@ class TestSaveConfigCloud:
 
 def test_default_has_grace_period() -> None:
     """DEFAULT_CONFIG must include sync.grace_period_minutes."""
-    assert DEFAULT_CONFIG["sync"]["grace_period_minutes"] == 120
+    assert DEFAULT_CONFIG["sync"]["grace_period_minutes"] == 15

@@ -190,6 +190,9 @@
                 hx-indicator="#autosync-spinner, #autosync-status"
                 hx-trigger="change"
             >
+                <option value="5" {{ 'selected' if auto_sync.interval_minutes == 5 }}>5 min</option>
+                <option value="10" {{ 'selected' if auto_sync.interval_minutes == 10 }}>10 min</option>
+                <option value="15" {{ 'selected' if auto_sync.interval_minutes == 15 }}>15 min</option>
                 <option value="30" {{ 'selected' if auto_sync.interval_minutes == 30 }}>30 min</option>
                 <option value="60" {{ 'selected' if auto_sync.interval_minutes == 60 }}>1 hour</option>
                 <option value="120" {{ 'selected' if auto_sync.interval_minutes == 120 }}>2 hours</option>
@@ -409,21 +412,34 @@
 </div>
 
 <script>
-let _syncStopped = false;
+// "Sync Now" runs as a background job on the server (see /api/sync-job/start),
+// so it keeps going even if this tab closes. This just starts it and polls
+// /api/sync-job/status to reflect progress — it does not drive the sync itself.
+let _syncPollTimer = null;
+let _syncWasStopped = false;
 
-function stopSync() {
-    _syncStopped = true;
+function _syncUi() {
+    return {
+        btn: document.getElementById('sync-now-btn'),
+        stopBtn: document.getElementById('sync-stop-btn'),
+        progress: document.getElementById('sync-progress'),
+        text: document.getElementById('sync-progress-text'),
+        bar: document.getElementById('sync-progress-bar'),
+        result: document.getElementById('sync-result'),
+    };
+}
+
+async function stopSync() {
+    _syncWasStopped = true;
     document.getElementById('sync-stop-btn').style.display = 'none';
+    try {
+        await fetch(window.APP_PREFIX + '/api/sync-job/stop', { method: 'POST' });
+    } catch (e) { /* polling will just keep going until the server catches up */ }
 }
 
 async function syncNow() {
-    _syncStopped = false;
-    const btn = document.getElementById('sync-now-btn');
-    const stopBtn = document.getElementById('sync-stop-btn');
-    const progress = document.getElementById('sync-progress');
-    const text = document.getElementById('sync-progress-text');
-    const bar = document.getElementById('sync-progress-bar');
-    const result = document.getElementById('sync-result');
+    _syncWasStopped = false;
+    const { btn, stopBtn, progress, text, bar, result } = _syncUi();
 
     btn.disabled = true;
     btn.style.opacity = '0.5';
@@ -433,91 +449,110 @@ async function syncNow() {
     text.textContent = 'Starting sync...';
     bar.style.width = '0%';
 
-    let total = 0;
-    let synced = 0;
-    let errors = 0;
-
-    while (!_syncStopped) {
-        try {
-            const resp = await fetch(window.APP_PREFIX + '/api/sync-one', { method: 'POST' });
-            const data = await resp.json();
-
-            if (data.busy) {
-                text.textContent = 'Another sync is already running. Please wait.';
-                break;
-            }
-
-            if (data.error && !data.title) {
-                errors++;
-                // Show user-friendly error messages
-                const err = data.error;
-                if (data.eu_consent) {
-                    text.textContent = 'Garmin requires upload consent.';
-                    result.innerHTML = '<div class="toast toast-error">Enable Device Upload in <a href="https://connect.garmin.com/modern/settings" target="_blank" style="color: inherit; text-decoration: underline;">Garmin Settings</a> > Data, then try again.</div>';
-                } else if (err.includes('Hevy API key')) {
-                    text.textContent = 'Hevy API key expired. Enter a new key in Setup.';
-                    result.innerHTML = '<div class="toast toast-error">Hevy API key invalid. <a href="/setup" style="color: inherit; text-decoration: underline;">Go to Setup</a></div>';
-                } else if (err.includes('Login failed') || err.includes('auth') || err.includes('OAuth') || err.includes('token')) {
-                    text.textContent = 'Garmin connection expired. Please reconnect from Setup.';
-                    result.innerHTML = '<div class="toast toast-error">Garmin connection expired. <a href="/setup" style="color: inherit; text-decoration: underline;">Reconnect</a></div>';
-                } else {
-                    text.textContent = 'Sync error. ' + (synced > 0 ? synced + ' synced before error.' : 'Try again.');
-                }
-                break;
-            }
-
-            if (data.done || (data.synced === 0 && data.remaining <= 0)) {
-                text.textContent = synced > 0 ? 'All caught up!' : 'Everything is already synced.';
-                bar.style.width = '100%';
-                break;
-            }
-
-            if (data.synced > 0) {
-                synced++;
-                if (total === 0) total = synced + (data.remaining || 0);
-                const pct = total > 0 ? Math.round((synced / total) * 100) : 0;
-                const verb = data.skipped_error ? 'Skipped (error)' : data.skipped_duplicate ? 'Skipped' : 'Synced';
-                text.textContent = verb + ' "' + data.title + '" (' + synced + '/' + total + ')';
-                bar.style.width = pct + '%';
-                // Update stats live
-                if (data.remaining >= 0) {
-                    const onGarminEl = document.getElementById('stat-on-garmin');
-                    const pendingEl = document.getElementById('stat-pending');
-                    if (pendingEl) pendingEl.textContent = data.remaining;
-                    if (onGarminEl) onGarminEl.textContent = total - data.remaining;
-                }
-            } else if (data.remaining > 0) {
-                continue;
-            } else {
-                break;
-            }
-        } catch (e) {
-            errors++;
-            text.textContent = 'Network error. ' + (synced > 0 ? synced + ' synced so far. ' : '') + 'Try again.';
-            break;
+    try {
+        const resp = await fetch(window.APP_PREFIX + '/api/sync-job/start', { method: 'POST' });
+        const data = await resp.json();
+        if (data.busy) {
+            text.textContent = 'Another sync is already running — showing its progress.';
         }
+    } catch (e) {
+        text.textContent = 'Network error starting sync. Try again.';
+        _finishSyncUi({ error: 'network' });
+        return;
     }
 
-    if (_syncStopped && synced > 0) {
-        text.textContent = 'Paused after ' + synced + ' workouts. Click Sync Now to resume.';
+    _pollSyncStatus();
+}
+
+function _pollSyncStatus() {
+    clearTimeout(_syncPollTimer);
+    _syncPollTimer = setTimeout(_tickSyncStatus, 400);
+}
+
+async function _tickSyncStatus() {
+    const { text, bar, result } = _syncUi();
+    let data;
+    try {
+        const resp = await fetch(window.APP_PREFIX + '/api/sync-job/status');
+        data = await resp.json();
+    } catch (e) {
+        text.textContent = 'Lost connection to server — retrying...';
+        _pollSyncStatus();
+        return;
     }
 
+    const total = data.total || 0;
+    const synced = data.synced || 0;
+
+    if (data.current_title) {
+        const pct = total > 0 ? Math.round((synced / total) * 100) : 0;
+        const verb = data.skipped_error ? 'Skipped (error)' : data.skipped_duplicate ? 'Skipped' : 'Synced';
+        text.textContent = verb + ' "' + data.current_title + '" (' + synced + (total ? '/' + total : '') + ')';
+        bar.style.width = pct + '%';
+        const onGarminEl = document.getElementById('stat-on-garmin');
+        const pendingEl = document.getElementById('stat-pending');
+        if (pendingEl) pendingEl.textContent = data.remaining;
+        if (onGarminEl && total) onGarminEl.textContent = total - data.remaining;
+    }
+
+    if (!data.active) {
+        if (data.error) {
+            const err = data.error;
+            if (data.eu_consent) {
+                result.innerHTML = '<div class="toast toast-error">Enable Device Upload in <a href="https://connect.garmin.com/modern/settings" target="_blank" style="color: inherit; text-decoration: underline;">Garmin Settings</a> > Data, then try again.</div>';
+            } else if (err.includes('Hevy API key')) {
+                result.innerHTML = '<div class="toast toast-error">Hevy API key invalid. <a href="/setup" style="color: inherit; text-decoration: underline;">Go to Setup</a></div>';
+            } else if (err.includes('Login failed') || err.includes('auth') || err.includes('OAuth') || err.includes('token')) {
+                result.innerHTML = '<div class="toast toast-error">Garmin connection expired. <a href="/setup" style="color: inherit; text-decoration: underline;">Reconnect</a></div>';
+            } else {
+                text.textContent = 'Sync error. ' + (synced > 0 ? synced + ' synced before error.' : 'Try again.');
+                result.innerHTML = '<div class="toast toast-error">' + text.textContent + '</div>';
+            }
+        } else if (_syncWasStopped) {
+            text.textContent = synced > 0 ? 'Paused after ' + synced + ' workouts. Click Sync Now to resume.' : 'Stopped.';
+            if (synced > 0) result.innerHTML = '<div class="toast toast-success">' + synced + ' synced. Resume anytime.</div>';
+        } else if (synced > 0) {
+            bar.style.width = '100%';
+            text.textContent = data.message || 'All caught up!';
+            result.innerHTML = '<div class="toast toast-success">' + synced + ' workout' + (synced > 1 ? 's' : '') + ' synced to Garmin.</div>';
+            setTimeout(function() { location.reload(); }, 2000);
+        } else {
+            text.textContent = data.message || 'Everything is already synced.';
+            result.innerHTML = '<div class="toast" style="background:rgba(100,116,139,0.15);border-color:rgba(100,116,139,0.3);">' + text.textContent + '</div>';
+        }
+        _finishSyncUi(data);
+        return;
+    }
+
+    _pollSyncStatus();
+}
+
+function _finishSyncUi(data) {
+    clearTimeout(_syncPollTimer);
+    const { btn, stopBtn, progress } = _syncUi();
     progress.style.display = 'none';
     stopBtn.style.display = 'none';
     btn.disabled = false;
     btn.style.opacity = '1';
-
-    if (synced > 0 && !_syncStopped) {
-        result.innerHTML = '<div class="toast toast-success">' + synced + ' workout' + (synced > 1 ? 's' : '') + ' synced to Garmin.</div>';
-        setTimeout(function() { location.reload(); }, 2000);
-    } else if (synced > 0 && _syncStopped) {
-        result.innerHTML = '<div class="toast toast-success">' + synced + ' synced. Resume anytime.</div>';
-        setTimeout(function() { location.reload(); }, 2000);
-    } else if (errors > 0 && !result.innerHTML) {
-        result.innerHTML = '<div class="toast toast-error">' + text.textContent + '</div>';
-    } else {
-        result.innerHTML = '<div class="toast" style="background:rgba(100,116,139,0.15);border-color:rgba(100,116,139,0.3);">Everything is already synced.</div>';
-    }
 }
+
+// If a sync was already running server-side (e.g. this tab was closed and
+// reopened mid-sync, or another tab started it), resume showing its
+// progress instead of the button looking idle.
+(async function _resumeSyncIfActive() {
+    try {
+        const resp = await fetch(window.APP_PREFIX + '/api/sync-job/status');
+        const data = await resp.json();
+        if (data.active) {
+            const { btn, stopBtn, progress, text } = _syncUi();
+            btn.disabled = true;
+            btn.style.opacity = '0.5';
+            stopBtn.style.display = '';
+            progress.style.display = 'block';
+            text.textContent = 'Resuming sync in progress...';
+            _pollSyncStatus();
+        }
+    } catch (e) { /* dashboard just loads idle */ }
+})();
 </script>
 {% endblock %}

@@ -22,6 +22,9 @@ class TestMinutesToCron:
     @pytest.mark.parametrize(
         "minutes,expected",
         [
+            (5, "*/5 * * * *"),
+            (10, "*/10 * * * *"),
+            (15, "*/15 * * * *"),
             (30, "*/30 * * * *"),
             (60, "0 * * * *"),
             (120, "0 */2 * * *"),

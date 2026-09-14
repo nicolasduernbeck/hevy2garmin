@@ -2257,7 +2257,7 @@ async def api_toggle_autosync(request: Request):
         interval = int(form.get("interval", 120))
     except (ValueError, TypeError):
         interval = 120
-    if interval not in (30, 60, 120, 240, 360, 720, 1440):
+    if interval not in (5, 10, 15, 30, 60, 120, 240, 360, 720, 1440):
         interval = 120
 
     config = load_config()
@@ -2324,11 +2324,16 @@ def _minutes_to_cron(minutes: int) -> str:
     """Convert an interval in minutes to a GitHub Actions cron expression.
 
     Supports the discrete values exposed in the dashboard select:
-    30, 60, 120, 240, 360, 720, 1440. Falls back to '0 */2 * * *' for
-    anything unexpected.
+    5, 10, 15, 30, 60, 120, 240, 360, 720, 1440. Falls back to '0 */2 * * *'
+    for anything unexpected.
+
+    GitHub Actions does not guarantee scheduled runs fire exactly on time
+    (they can lag by several minutes under load), so a sub-30-minute cron
+    here is best-effort — the Docker in-process timer does not have this
+    limitation.
     """
-    if minutes == 30:
-        return "*/30 * * * *"
+    if minutes in (5, 10, 15, 30) and 60 % minutes == 0:
+        return f"*/{minutes} * * * *"
     if minutes == 60:
         return "0 * * * *"
     if minutes == 1440:
@@ -2521,6 +2526,118 @@ async def api_sync_one(request: Request, merge_only: bool = Query(False)):
     return await _sync_one_recorded(
         respect_grace=False, merge_only=merge_only, trigger="manual (one)"
     )
+
+
+# ── Manual "Sync Now" background job ────────────────────────────────────────
+#
+# The dashboard used to drive a full sync by looping fetch() calls to
+# /api/sync-one from the browser — one workout per request. That was built
+# for a serverless deploy where nothing can run once the HTTP response is
+# sent, so the browser tab itself was the only thing keeping the job alive.
+# On a long-running server (Docker) that's a liability: closing the tab, or
+# the request getting dropped, silently kills the loop mid-sync. These
+# endpoints move the loop server-side into a background asyncio task, so a
+# sync keeps running after the tab closes; the dashboard just polls status.
+
+_manual_sync_state: dict[str, Any] = {"active": False}
+_manual_sync_tasks: set = set()  # strong refs — bare asyncio tasks get garbage collected
+
+
+def _reset_manual_sync_state() -> None:
+    _manual_sync_state.clear()
+    _manual_sync_state.update(
+        active=True, synced=0, total=0, remaining=0,
+        current_title=None, message=None, error=None,
+        done=False, stop_requested=False,
+    )
+
+
+async def _run_manual_sync_job() -> None:
+    """Repeatedly sync one workout at a time until done, stopped, or failed."""
+    import json as _json
+
+    synced = 0
+    total = 0
+    try:
+        while not _manual_sync_state["stop_requested"]:
+            resp = await _sync_one_recorded(respect_grace=False, trigger="manual (sync now)")
+            data = _json.loads(bytes(resp.body))
+
+            if data.get("busy"):
+                _manual_sync_state.update(message="Another sync is already running.", done=True)
+                break
+
+            if data.get("error") and not data.get("title"):
+                _manual_sync_state.update(error=data["error"], done=True)
+                break
+
+            if data.get("synced"):
+                # Credit this step BEFORE checking `done` — the response for
+                # the very last workout carries both in the same payload
+                # (remaining hits 0 the moment it uploads), and checking
+                # `done` first would finish the job one workout short.
+                synced += 1
+                if total == 0:
+                    total = synced + data.get("remaining", 0)
+                _manual_sync_state.update(
+                    synced=synced, total=total, remaining=data.get("remaining", 0),
+                    current_title=data.get("title"),
+                    skipped_error=bool(data.get("skipped_error")),
+                    skipped_duplicate=bool(data.get("skipped_duplicate")),
+                )
+                if data.get("done"):
+                    _manual_sync_state.update(message="All caught up!", done=True)
+                    break
+                continue
+
+            if data.get("done") or data.get("remaining", 0) <= 0:
+                _manual_sync_state.update(
+                    message="All caught up!" if synced else "Everything is already synced.",
+                    remaining=data.get("remaining", 0), done=True,
+                )
+                break
+            # else: a step that neither synced nor errored (e.g. deferred by
+            # grace) — loop again immediately, there's more to look at.
+    except Exception as e:
+        logger.warning("Manual sync job crashed", exc_info=True)
+        _manual_sync_state.update(error=str(e), done=True)
+    finally:
+        _manual_sync_state["active"] = False
+
+
+@app.post("/api/sync-job/start")
+async def api_sync_start():
+    """Start (or report already-running) the background 'Sync Now' job."""
+    import asyncio
+    from fastapi.responses import JSONResponse
+
+    if is_demo_mode():
+        return JSONResponse({"status": "demo", "message": "Sync disabled in demo mode"})
+
+    if _manual_sync_state.get("active"):
+        return JSONResponse({"started": False, "busy": True, **_manual_sync_state})
+
+    _reset_manual_sync_state()
+    task = asyncio.create_task(_run_manual_sync_job())
+    _manual_sync_tasks.add(task)
+    task.add_done_callback(_manual_sync_tasks.discard)
+    return JSONResponse({"started": True})
+
+
+@app.get("/api/sync-job/status")
+async def api_sync_status():
+    """Poll the state of the background 'Sync Now' job."""
+    from fastapi.responses import JSONResponse
+    return JSONResponse(_manual_sync_state or {"active": False})
+
+
+@app.post("/api/sync-job/stop")
+async def api_sync_stop():
+    """Ask the background 'Sync Now' job to stop after its current step."""
+    from fastapi.responses import JSONResponse
+    if _manual_sync_state.get("active"):
+        _manual_sync_state["stop_requested"] = True
+    return JSONResponse({"stopping": True})
 
 
 async def _sync_one_recorded(
