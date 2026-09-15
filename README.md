@@ -133,9 +133,9 @@ You're on the dashboard. Click **Sync All Workouts** to backfill your history. T
 
 > **EU users:** If you see an upload consent error, go to [Garmin Connect Settings](https://connect.garmin.com/modern/settings) > scroll to **Data** > enable **Device Upload**. This is a one-time Garmin GDPR requirement.
 
-To keep future workouts syncing automatically, toggle **Auto-sync** on the dashboard. This creates a background job that syncs new workouts every 2 hours.
+To keep future workouts syncing automatically, toggle **Auto-sync** on the dashboard and pick a check interval (as low as 5 minutes on Docker).
 
-> **Sync timing:** hevy2garmin waits `sync.grace_period_minutes` (default 120)
+> **Sync timing:** hevy2garmin waits `sync.grace_period_minutes` (default 5)
 > after a workout ends before syncing it automatically, so your Garmin watch
 > activity can land first and it merges into one activity instead of creating a
 > duplicate. On Vercel the default cron runs once a day; if your plan allows,
